@@ -59,6 +59,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define HLI_PACKET_ID_CONFIG                    0x12    ///< Acknowledge packet
 #define HLI_PACKET_ID_MAG                       0x13    ///< Magnetic compass data packet
 
+// by Xun
+#define HLI_PACKET_ID_LASER                       0x14    ///< laser data packet
+
 
 // flight mode defines for communication with LL processor ----------------------------------------------
 #define HLI_FLIGHTMODE_ACC                      0x01
@@ -93,6 +96,23 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // communication flags
 #define HLI_COMM_ACK                            0x01    ///< defines that a packet has to be acknowledged when received
+
+
+//by Xun
+/// laser packet
+typedef struct
+__attribute__((packed))
+{
+
+  /// timestamp in us; synchronized to host pc
+  int64_t timestamp;
+
+  /// laser measurement [cm]
+  int32_t laser_measurement;
+} HLI_LASER;
+
+
+
 
 /// imu packet
 typedef struct

@@ -25,6 +25,9 @@
 #include "asctec_hlp_comm/MotorSpeed.h"
 #include "asctec_hlp_comm/GpsCustom.h"
 
+// by Xun
+#include "asctec_hlp_comm/mav_laser.h"
+
 #include <sstream>
 
 namespace AciRemote {
@@ -41,8 +44,8 @@ AciRemote::AciRemote(ros::NodeHandle& nh):
 	aci_obj_ptr = static_cast<void*>(this);
 
 	// fetch values from ROS parameter server
-    n_.param<std::string>("serial_port", port_name_, std::string("/dev/ttyUSB0"));
-    n_.param<int>("baudrate", baud_rate_, 230400);
+    n_.param<std::string>("serial_port", port_name_, std::string("/dev/ttyS2"));
+    n_.param<int>("baudrate", baud_rate_, 57600);
     n_.param<std::string>("frame_id", frame_id_, std::string(n_.getNamespace() + "_base_link"));
 	// parameters below will (that is, should) be moving to dynamic reconfigure in a later release
     n_.param<int>("packet_rate_imu_mag", imu_rate_, 50);
@@ -56,6 +59,8 @@ AciRemote::AciRemote(ros::NodeHandle& nh):
 	ang_vel_variance_ *= ang_vel_variance_;
 	lin_acc_variance_ *= lin_acc_variance_;
 
+    n_.param<int>("packet_rate_laser_mag", laser_rate_, 50);    // by Xun
+
 	// fetch topic names from ROS parameter server
     n_.param<std::string>("imu_topic", imu_topic_, std::string("imu"));
     n_.param<std::string>("imu_custom_topic", imu_custom_topic_, std::string("imu_custom"));
@@ -68,6 +73,8 @@ AciRemote::AciRemote(ros::NodeHandle& nh):
     n_.param<std::string>("motor_speed_topic", motor_topic_, std::string("motor_speed"));
     n_.param<std::string>("cmd_vel_topic", ctrl_topic_, std::string("cmd_vel"));
     n_.param<std::string>("ctrl_service", ctrl_srv_name_, std::string("set_uav_control"));
+
+    n_.param<std::string>("laser_topic", laser_topic_, std::string("laser"));   // by Xun
 
 
 	// TODO: Initialise Asctec SDK3 Command data structures before enabling RC serial switch
@@ -91,6 +98,12 @@ AciRemote::~AciRemote() {
 		gps_thread_->join();
 	if (rc_status_thread_.get() != NULL)
 		rc_status_thread_->join();
+
+  // by Xun
+  if (laser_thread_.get() != NULL)
+    laser_thread_->join();
+
+
 
 	boost::unique_lock<boost::mutex> u_lock(buf_mtx_);
 	must_stop_engine_ = true;
@@ -163,6 +176,8 @@ int AciRemote::initRosLayer() {
             status_pub_ = n_.advertise<asctec_hlp_comm::mav_hlp_status>(status_topic_, 1);
 			motor_pub_ = n_.advertise<asctec_hlp_comm::MotorSpeed>(motor_topic_, 1);
 
+      laser_pub_ = n_.advertise<asctec_hlp_comm::mav_laser>(laser_topic_, 1);   // by Xun
+
             // only advertise topic if parameter is set to true
             if (externalise_state_) {
                 extern_pub_ = n_.advertise<std_msgs::String>(extern_topic_, 10);
@@ -196,6 +211,16 @@ int AciRemote::initRosLayer() {
 			catch (boost::system::system_error::exception& e) {
 				ROS_ERROR_STREAM("Could not create Status publisher thread. " << e.what());
 			}
+
+      // by Xun
+      try {
+        laser_thread_ = boost::shared_ptr<boost::thread>
+          (new boost::thread(boost::bind(&AciRemote::publishLaserData, this)));
+      }
+      catch (boost::system::system_error::exception& e) {
+        ROS_ERROR_STREAM("Could not create laser publisher thread. " << e.what());
+      }
+
 
 			cond_any_.notify_all();
 
@@ -424,14 +449,22 @@ void AciRemote::setupVarPackets() {
 	aciAddContentToVarPacket(2, 0x0301, &RO_ALL_Data_.angle_roll);
 	aciAddContentToVarPacket(2, 0x0302, &RO_ALL_Data_.angle_yaw);
 
+  // packet ID 3 containing: laser, by Xun
+  aciAddContentToVarPacket(3, 0x1001, &laser_distance_);
+
 	// set transmission rate for packets, update and send configuration
 	aciSetVarPacketTransmissionRate(0, rc_status_rate_);
 	aciSetVarPacketTransmissionRate(1, gps_rate_);
 	aciSetVarPacketTransmissionRate(2, imu_rate_);
+
+  aciSetVarPacketTransmissionRate(3, laser_rate_);    // by Xun
+
 	aciVarPacketUpdateTransmissionRates();
 	aciSendVariablePacketConfiguration(0);
 	aciSendVariablePacketConfiguration(1);
 	aciSendVariablePacketConfiguration(2);
+
+  aciSendVariablePacketConfiguration(3);    // by Xun
 
 	ROS_INFO_STREAM("Variables packets configured");
 
@@ -869,6 +902,45 @@ void AciRemote::publishStatusMotorsRcData() {
 	catch (boost::thread_interrupted const&) {
 		ROS_INFO("publishStatusMotorsRcData() thread interrupted");
 	}
+}
+
+
+
+
+// by Xun
+void AciRemote::publishLaserData() {
+  asctec_hlp_comm::mav_laserPtr laser_msg(new asctec_hlp_comm::mav_laser);
+  laser_msg->header.frame_id = frame_id_;
+  int laser_throttle = 1000 / laser_rate_;
+  static int seq[] = {0, 0};
+  try {
+    for (;;) {
+      boost::system_time const laser_timeout =
+          boost::get_system_time() + boost::posix_time::milliseconds(laser_throttle);
+      // acquire multiple reader shared lock
+      boost::shared_lock<boost::shared_mutex> s_lock(shared_mtx_);
+
+      if (cond_any_.timed_wait(s_lock, laser_timeout) == false) {
+        // check whether thread should terminate (::interrupt() appears to have no effect)
+        if (must_stop_pub_)
+          return;
+        // TODO: implement flag to put thread into idle mode to save computational resources
+
+        ros::Time time_stamp(ros::Time::now());
+        // only publish if someone has already subscribed to topics
+        if (laser_pub_.getNumSubscribers() > 0) {
+          laser_msg->header.stamp = time_stamp;
+          laser_msg->header.seq = seq[0];
+          seq[0]++;
+          laser_msg->laser_measurement = laser_distance_;
+          laser_pub_.publish(laser_msg);
+        }
+      }
+    }
+  }
+  catch (boost::thread_interrupted const&) {
+    ROS_INFO("publishLaserData() thread interrupted");
+  }
 }
 
 

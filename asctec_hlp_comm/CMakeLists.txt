@@ -25,6 +25,7 @@ add_message_files(
   mav_hlp_status.msg  
   PositionWithCovarianceStamped.msg
   MotorSpeed.msg
+  mav_laser.msg     #laser message, by Xun
 )
 
 add_service_files(

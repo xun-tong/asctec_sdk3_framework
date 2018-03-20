@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	WaypointGPSActionServer hlp_waypt("gps_waypt_nav", hlp);
+//	WaypointGPSActionServer hlp_waypt("gps_waypt_nav", hlp);
 
 	ros::spin();
 

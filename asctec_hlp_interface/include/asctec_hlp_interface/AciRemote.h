@@ -71,6 +71,8 @@ private:
 	void publishGpsData();
 	void publishStatusMotorsRcData();
 
+  void publishLaserData();   // by Xun
+
 	void ctrlTopicCallback(const geometry_msgs::TwistConstPtr&);
 	bool ctrlServiceCallback(asctec_hlp_comm::HlpCtrlSrv::Request&,
 			asctec_hlp_comm::HlpCtrlSrv::Response&);
@@ -92,6 +94,8 @@ private:
 	double lin_acc_variance_;
     bool externalise_state_;
 
+    int laser_rate_;    // by Xun
+
 	std::string imu_topic_;
 	std::string imu_custom_topic_;
 	std::string mag_topic_;
@@ -103,6 +107,8 @@ private:
 	std::string motor_topic_;
 	std::string ctrl_topic_;
 	std::string ctrl_srv_name_;
+
+  std::string laser_topic_;   // by Xun
 
 	ros::NodeHandle n_;
 
@@ -117,6 +123,8 @@ private:
 	ros::Publisher motor_pub_;
 	ros::Subscriber ctrl_sub_;
 	ros::ServiceServer ctrl_srv_;
+
+  ros::Publisher laser_pub_;    // by Xun
 
 	bool versions_match_;
 	bool var_list_recv_;
@@ -134,6 +142,8 @@ private:
 	boost::shared_ptr<boost::thread> gps_thread_;
 	boost::shared_ptr<boost::thread> rc_status_thread_;
 
+  boost::shared_ptr<boost::thread> laser_thread_;   // by Xun
+
 	// Asctec SDK 3.0 data structures
 	struct WO_SDK_STRUCT WO_SDK_;
 	struct WO_SDK_STRUCT RO_SDK_;
@@ -143,6 +153,8 @@ private:
 	//struct WO_DIRECT_MOTOR_CONTROL WO_DMC_;
 	struct WO_CTRL_INPUT WO_CTRL_;
 	struct WAYPOINT WO_wpToLL_;
+
+  short laser_distance_;    // by Xun
 
 	// Asctec SDK 3.0 variables
 	//choose actual waypoint command from WP_CMD_* defines
